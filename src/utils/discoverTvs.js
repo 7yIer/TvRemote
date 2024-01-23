@@ -2,42 +2,48 @@ import dgram from 'react-native-udp';
 import { Buffer } from 'buffer';
 
 const discoverDevices = () => {
-    const socket = dgram.createSocket('udp4');
-    const devicesMap = new Map();
+    return new Promise((resolve, reject) => {
+        const socket = dgram.createSocket('udp4');
+        const devicesMap = new Map();
 
-    const ssdpMessage = Buffer.from(
-        'M-SEARCH * HTTP/1.1\r\n' +
-        'HOST: 239.255.255.250:1900\r\n' +
-        'MAN: "ssdp:discover"\r\n' +
-        'ST: urn:schemas-upnp-org:device:MediaRenderer:1\r\n' + // Targeting only MediaRenderer devices
-        'MX: 3\r\n' +
-        '\r\n'
-    );
+        const ssdpMessage = Buffer.from(
+            'M-SEARCH * HTTP/1.1\r\n' +
+            'HOST: 239.255.255.250:1900\r\n' +
+            'MAN: "ssdp:discover"\r\n' +
+            'ST: urn:schemas-upnp-org:device:MediaRenderer:1\r\n' + // Targeting only MediaRenderer devices
+            'MX: 3\r\n' +
+            '\r\n'
+        );
 
-    socket.on('message', async (msg) => {
-        const parsedDevice = parseSSDPResponse(msg.toString());
-        if (parsedDevice.location) {
-            try {
-                const friendlyName = await fetchFriendlyName(parsedDevice.location);
-                parsedDevice.friendlyName = friendlyName;
-                devicesMap.set(parsedDevice.usn, parsedDevice);
-            } catch (error) {
-                console.error('Error fetching friendly name:', error);
+        socket.on('message', async (msg) => {
+            const parsedDevice = parseSSDPResponse(msg.toString());
+            if (parsedDevice.location) {
+                try {
+                    const friendlyName = await fetchFriendlyName(parsedDevice.location);
+                    parsedDevice.friendlyName = friendlyName;
+                    devicesMap.set(parsedDevice.usn, parsedDevice);
+                } catch (error) {
+                    console.error('Error fetching friendly name:', error);
+                }
             }
-        }
-    });
+        });
 
-    socket.bind(() => {
-        socket.setBroadcast(true);
-        socket.send(ssdpMessage, 0, ssdpMessage.length, 1900, '239.255.255.250');
-    });
+        socket.on('error', (error) => {
+            console.error('Socket error:', error);
+            reject(error);
+        });
 
-    // After a delay, log the list of unique devices
-    setTimeout(() => {
-        const uniqueDevices = Array.from(devicesMap.values());
-        console.log(uniqueDevices);
-        // Here you can use the 'uniqueDevices' in your application's UI
-    }, 5000); // Adjust the timeout as needed
+        socket.bind(() => {
+            socket.setBroadcast(true);
+            socket.send(ssdpMessage, 0, ssdpMessage.length, 1900, '239.255.255.250');
+        });
+
+        setTimeout(() => {
+            socket.close();
+            const uniqueDevices = Array.from(devicesMap.values());
+            resolve(uniqueDevices); // Resolve the promise with the list of devices
+        }, 5000); // Adjust timeout as needed
+    });
 };
 
 const parseSSDPResponse = (response) => {
@@ -72,8 +78,6 @@ const fetchFriendlyName = async (location) => {
     try {
         const response = await fetch(location);
         const xmlText = await response.text();
-        // Parse the XML for the friendly name
-        // The actual parsing will depend on the XML structure and may require an XML parser
         return parseXMLForFriendlyName(xmlText);
     } catch (error) {
         throw error;
